@@ -58,7 +58,7 @@ other dependencies.
 ## Install
 
 ```sh
-git clone https://github.com/dcqwqc/caelestia-plugin-agent-usage \
+git clone https://github.com/dcqwqc/CaelestiaPlugin-AgentUsage \
     ~/.local/share/caelestia/plugins/agent-usage
 ```
 
