@@ -24,9 +24,25 @@ RowLayout {
     spacing: Tokens.spacing.small
 
     StyledText {
+        // Countdown strings change every minute (for example 4h 11m -> 4h 10m).
+        // Reserve one fixed text cell so proportional glyph widths never move
+        // the progress bar, its sibling gauge, or the parent card.
+        Layout.minimumWidth: labelMetrics.width
+        Layout.preferredWidth: labelMetrics.width
+        Layout.maximumWidth: labelMetrics.width
+        horizontalAlignment: Text.AlignLeft
+
         text: root.label
         font: Tokens.font.body.small
         color: Colours.palette.m3onSurfaceVariant
+    }
+
+    TextMetrics {
+        id: labelMetrics
+
+        font: Tokens.font.body.small
+        // Wider than every current reset label (5-hour and weekly windows).
+        text: "88h 88m"
     }
 
     StyledProgressBar {
@@ -47,6 +63,8 @@ RowLayout {
         // Held at the width of a full reading so the bars do not jump a pixel
         // sideways every time a percentage gains a digit
         Layout.minimumWidth: metrics.width
+        Layout.preferredWidth: metrics.width
+        Layout.maximumWidth: metrics.width
         horizontalAlignment: Text.AlignRight
 
         text: root.known ? `${Math.round(root.value * 100)}%` : "–"

@@ -40,7 +40,11 @@ StyledRect {
     color: Colours.tPalette.m3surfaceContainer
     radius: Tokens.rounding.extraLarge
 
-    implicitWidth: Math.max(layout.implicitWidth + Tokens.padding.largeIncreased * 2, 320)
+    // This card sits inside a centered/scaled dashboard. Its old implicit width
+    // followed the current countdown-label widths, so a timer tick could change
+    // the dashboard's total width by a pixel or two and visibly nudge the whole
+    // panel. Keep the card geometry invariant while live values update.
+    implicitWidth: 320
     implicitHeight: layout.implicitHeight + Tokens.padding.large * 2
 
     Binding {
