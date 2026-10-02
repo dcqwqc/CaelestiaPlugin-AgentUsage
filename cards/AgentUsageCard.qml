@@ -73,6 +73,8 @@ StyledRect {
         spacing: Tokens.spacing.medium
 
         RowLayout {
+            id: headerRow
+
             Layout.fillWidth: true
             Layout.leftMargin: -Tokens.padding.extraSmall
             spacing: Tokens.spacing.small
@@ -106,27 +108,42 @@ StyledRect {
             }
         }
 
-        Repeater {
-            model: root.shown
+        // Keep the repeated agent rows in a real layout container. Giving each
+        // repeated row Layout.fillHeight made the parent card report only its
+        // header/startup height, so the Performance row could size the card too
+        // short and clip the later rows. Natural row heights make the loader's
+        // implicitHeight follow the actual rendered content.
+        ColumnLayout {
+            id: agentsColumn
 
-            AgentRow {
-                required property var modelData
+            Layout.fillWidth: true
+            spacing: Tokens.spacing.medium
+            visible: root.shown.length > 0
 
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+            Repeater {
+                model: root.shown
 
-                agent: modelData
-                accent: root.accents[modelData.id] ?? root.accent
+                AgentRow {
+                    required property var modelData
+
+                    Layout.fillWidth: true
+
+                    agent: modelData
+                    accent: root.accents[modelData.id] ?? root.accent
+                }
             }
         }
 
-        // Nothing to lay out until the first poll lands
+        // Nothing to lay out until the first poll lands. Keep a small natural
+        // placeholder height rather than asking the layout to fill arbitrary
+        // remaining space.
         Item {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            implicitHeight: placeholderText.implicitHeight + Tokens.padding.small * 2
             visible: root.shown.length === 0
 
             StyledText {
+                id: placeholderText
                 anchors.centerIn: parent
                 text: Agents.AgentUsage.failed ? qsTr("No agent usage available") : qsTr("Collecting data...")
                 font: Tokens.font.body.small
