@@ -47,7 +47,7 @@ Repeater {
 }
 ```
 
-Both live in [kagami-caelestia](https://github.com/dcqwqc/kagami-caelestia).
+Both live in [kagami-caelestia](https://github.com/dcqwqc/CaelestiaPlugin-Kagami-caelestia).
 The hero cards there give up their stretch while a plugin holds that slot, so
 the CPU card's usage blob stays beside the CPU readout instead of being pushed
 to the far right of the row.
