@@ -37,7 +37,9 @@ import shutil
 import subprocess
 import urllib.request
 import urllib.error
-import urllib.parse
+import fcntl
+import tempfile
+import email.utils
 
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(
@@ -85,65 +87,192 @@ CLAUDE_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 # a secret; it is needed to exchange the refresh token it already keeps.
 CLAUDE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
+CLAUDE_REFRESH_STATE = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp",
+    "caelestia-agent-usage-claude-refresh-state.json",
+)
+CLAUDE_LAST_GOOD = os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"),
+    "caelestia-agent-usage-claude-last-good.json",
+)
+
+
+def read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def private_json(path, value):
+    """Write a small private cache atomically without storing OAuth tokens."""
+    tmp = None
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(
+            prefix=".agent-usage-", dir=os.path.dirname(path)
+        )
+        with os.fdopen(fd, "w") as f:
+            json.dump(value, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def refresh_error_status():
+    state = read_json(CLAUDE_REFRESH_STATE)
+    return (state.get("status") if state.get("retryAfter", 0) > time.time()
+            else None)
+
+
+def delay_claude_refresh(http_error):
+    """Respect Retry-After, then exponential backoff across QML poll runs."""
+    state = read_json(CLAUDE_REFRESH_STATE)
+    attempts = min(6, int(state.get("attempts", 0)) + 1)
+    delay = min(1800, 60 * (2 ** attempts))
+    header = http_error.headers.get("Retry-After") if http_error.headers else None
+    if header:
+        try:
+            delay = max(delay, float(header))
+        except ValueError:
+            try:
+                until = email.utils.parsedate_to_datetime(header).timestamp()
+                delay = max(delay, until - time.time())
+            except (TypeError, ValueError, OverflowError):
+                pass
+    # Non-rate-limit failures should also avoid hot loops.
+    private_json(CLAUDE_REFRESH_STATE, {
+        "status": int(http_error.code),
+        "attempts": attempts,
+        "retryAfter": time.time() + max(60, min(delay, 3600)),
+    })
+
+
+def claude_usage_fallback(reason):
+    """Only show recent verified readings; never manufacture percentages."""
+    previous = read_json(CLAUDE_LAST_GOOD)
+    sample = previous.get("reading") or {}
+    age = time.time() - previous.get("generated", 0)
+    if 0 <= age <= 1800 and sample.get("available"):
+        answer = dict(sample)
+        answer["stale"] = True
+        answer["detail"] = reason
+        return answer
+    answer = unavailable("claude", "Claude Code", reason)
+    # Possessing credentials does not prove the CLI can run, but the panel
+    # should not make an installed agent look uninstalled over a usage outage.
+    answer["configured"] = True
+    return answer
+
+
+
 
 def refresh_claude_token(oauth):
-    """Refresh an expired Claude Code access token and persist the new pair."""
-    refresh = oauth.get("refreshToken")
-    if not refresh:
-        return None
+    """Refresh Claude's OAuth token with the JSON payload its service expects.
 
-    body = urllib.parse.urlencode({
-        "grant_type": "refresh_token",
-        "refresh_token": refresh,
-        "client_id": CLAUDE_CLIENT_ID,
-    }).encode()
-    req = urllib.request.Request(
-        CLAUDE_TOKEN_URL,
-        data=body,
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            # The token service rejects Python's default user agent before it
-            # can process the OAuth exchange.
-            "User-Agent": "claude-code/2.1.270",
-        },
-    )
+    Serialize our own refreshes and re-read the credential file while holding
+    the lock. Never overwrite a token another Claude process already rotated.
+    """
     try:
-        with urllib.request.urlopen(req, timeout=8) as response:
-            refreshed = json.load(response)
-    except Exception:
+        lock_fd = os.open(CLAUDE_CREDS + ".agent-usage.lock",
+                          os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
         return None
 
-    access = refreshed.get("access_token")
-    if not access:
-        return None
+    with os.fdopen(lock_fd, "r+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            with open(CLAUDE_CREDS) as f:
+                credentials = json.load(f)
+        except (OSError, ValueError):
+            return None
 
-    # Keep the credential file in the format Claude Code itself owns.  OAuth
-    # servers may rotate refresh tokens, so retain the previous one only when
-    # the response does not supply a replacement.
-    updated = dict(oauth)
-    updated["accessToken"] = access
-    updated["refreshToken"] = refreshed.get("refresh_token") or refresh
-    if refreshed.get("expires_in") is not None:
-        updated["expiresAt"] = int((time.time() + float(refreshed["expires_in"])) * 1000)
-    if refreshed.get("refresh_token_expires_in") is not None:
-        updated["refreshTokenExpiresAt"] = int(
-            (time.time() + float(refreshed["refresh_token_expires_in"])) * 1000
+        current = credentials.get("claudeAiOauth") or {}
+        # Another process may already have renewed it since our first read.
+        if (current.get("accessToken") and
+                current.get("expiresAt", 0) / 1000 > time.time() + 60):
+            return current
+
+        refresh = current.get("refreshToken")
+        if not refresh:
+            return None
+        if read_json(CLAUDE_REFRESH_STATE).get("retryAfter", 0) > time.time():
+            return None
+
+        # Anthropic's Claude Code token service requires JSON, *not* OAuth
+        # form encoding. A form body fails renewal even with valid credentials.
+        body = json.dumps({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh,
+            "client_id": CLAUDE_CLIENT_ID,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            CLAUDE_TOKEN_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "claude-code/2.1.299",
+            },
         )
+        try:
+            with urllib.request.urlopen(req, timeout=8) as response:
+                refreshed = json.load(response)
+        except urllib.error.HTTPError as e:
+            delay_claude_refresh(e)
+            return None
+        except (OSError, ValueError, urllib.error.URLError):
+            return None
 
-    try:
-        with open(CLAUDE_CREDS) as f:
-            credentials = json.load(f)
-        credentials["claudeAiOauth"] = updated
-        tmp = CLAUDE_CREDS + ".agent-usage.tmp"
-        with open(tmp, "w") as f:
-            json.dump(credentials, f)
-        os.replace(tmp, CLAUDE_CREDS)
-    except Exception:
-        # The fresh token is still usable for this reading even if another
-        # Claude process won the race to write the credentials file.
-        pass
+        access = refreshed.get("access_token")
+        if not access:
+            return None
 
-    return updated
+        updated = dict(current)
+        updated["accessToken"] = access
+        updated["refreshToken"] = refreshed.get("refresh_token") or refresh
+        if refreshed.get("expires_in") is not None:
+            updated["expiresAt"] = int(
+                (time.time() + float(refreshed["expires_in"])) * 1000
+            )
+        if refreshed.get("refresh_token_expires_in") is not None:
+            updated["refreshTokenExpiresAt"] = int(
+                (time.time() + float(refreshed["refresh_token_expires_in"])) * 1000
+            )
+
+        # Keep the credential-file permissions private. If another writer has
+        # already updated the file, do not clobber their newer refresh token.
+        tmp = None
+        try:
+            with open(CLAUDE_CREDS) as f:
+                latest = json.load(f)
+            if ((latest.get("claudeAiOauth") or {}).get("refreshToken")
+                    != refresh):
+                return latest.get("claudeAiOauth") or None
+            latest["claudeAiOauth"] = updated
+            fd, tmp = tempfile.mkstemp(
+                prefix=".credentials.agent-usage-", dir=os.path.dirname(CLAUDE_CREDS)
+            )
+            with os.fdopen(fd, "w") as f:
+                json.dump(latest, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, CLAUDE_CREDS)
+        except (OSError, ValueError):
+            # A successful refresh still works for this reading; a later poll
+            # may have to retry if the disk write was blocked.
+            pass
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+        private_json(CLAUDE_REFRESH_STATE, {"status": 0, "retryAfter": 0,
+                                           "attempts": 0})
+        return updated
 
 
 def claude(timeout):
@@ -167,7 +296,10 @@ def claude(timeout):
         if not oauth:
             # An expired access token is normal.  Keep retrying its still-live
             # refresh token on later polls rather than calling this a sign-out.
-            return unavailable("claude", name, "refresh unavailable")
+            status = refresh_error_status()
+            reason = ("Usage rate-limited" if status == 429
+                      else "Usage refresh delayed")
+            return claude_usage_fallback(reason)
         token = oauth["accessToken"]
 
     req = urllib.request.Request(
@@ -183,16 +315,18 @@ def claude(timeout):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             body = json.load(r)
     except urllib.error.HTTPError as e:
-        return unavailable(
-            "claude", name, "signed out" if e.code in (401, 403) else "api error"
+        return claude_usage_fallback(
+            "Usage sign-in needed" if e.code in (401, 403)
+            else "Usage rate-limited" if e.code == 429
+            else "Usage service unavailable"
         )
     except Exception:
-        return unavailable("claude", name, "offline")
+        return claude_usage_fallback("Usage service offline")
 
     short = body.get("five_hour") or {}
     long = body.get("seven_day") or {}
 
-    return {
+    result = {
         "id": "claude",
         "name": name,
         "available": True,
@@ -202,7 +336,11 @@ def claude(timeout):
         "weeklyResets": iso_to_epoch(long.get("resets_at")),
         "detail": None,
         "stale": False,
+        "configured": True,
     }
+    private_json(CLAUDE_LAST_GOOD, {"generated": int(time.time()),
+                                    "reading": result})
+    return result
 
 
 # --------------------------------------------------------------------------

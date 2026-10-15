@@ -15,10 +15,11 @@ RowLayout {
     required property color accent
 
     readonly property bool available: agent?.available ?? false
+    readonly property bool configured: agent?.configured ?? false
     readonly property real fiveHour: available ? (agent.fiveHour ?? -1) : -1
     readonly property real weekly: available ? (agent.weekly ?? -1) : -1
     readonly property real peak: Math.max(fiveHour, weekly)
-    readonly property color colour: available ? accent : Colours.palette.m3onSurfaceVariant
+    readonly property color colour: (available || configured) ? accent : Colours.palette.m3onSurfaceVariant
     // Keep the labels counting down between usage polls as well.
     property int nowEpoch: Math.floor(Date.now() / 1000)
 
@@ -53,7 +54,7 @@ RowLayout {
 
         implicitSize: logo.implicitHeight + Tokens.padding.large
         color: root.available ? Colours.palette.m3secondaryContainer : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
-        opacity: root.available ? 1 : 0.7
+        opacity: (root.available || root.configured) ? 1 : 0.7
 
         shape: {
             if (root.peak >= 0.8)
@@ -93,6 +94,13 @@ RowLayout {
 
             Item {
                 Layout.fillWidth: true
+            }
+
+            StyledText {
+                visible: root.available && (root.agent?.stale ?? false)
+                text: qsTr("Cached")
+                font: Tokens.font.body.small
+                color: Colours.palette.m3onSurfaceVariant
             }
 
             StyledText {

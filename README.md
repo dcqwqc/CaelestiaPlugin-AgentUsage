@@ -16,6 +16,15 @@ swells as the agent gets used up, the way the CPU card's usage blob does.
 | Agent | Where the reading comes from |
 |---|---|
 | Claude Code | The usage endpoint, asked with the OAuth credentials Claude Code already stores in `~/.claude/.credentials.json`. |
+
+Claude Code's access token is refreshed using a JSON OAuth request. Failed
+token renewals back off across polls, respecting HTTP 429 and the provider's
+\`Retry-After\` header. This does not change Claude's actual limits or guarantee
+provider availability. When possible, the panel shows the last verified reading
+for up to 30 minutes, labeled **Cached**. Otherwise it reports the usage-data
+problem rather than suggesting Claude Code itself is uninstalled. Credential
+files stay private (mode 0600), with a write-time token-rotation check.
+
 | Codex | The `rate_limits` record the server returns with every response, as written into the newest session log under `~/.codex/sessions`. |
 | Antigravity | `agy -p /usage`, which answers the CLI's read-only slash commands in print mode without spending a turn. |
 
