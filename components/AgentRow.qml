@@ -14,6 +14,7 @@ RowLayout {
     required property var agent
     required property color accent
 
+    readonly property bool isAntigravity: agent?.id === "antigravity"
     readonly property bool available: agent?.available ?? false
     readonly property bool configured: agent?.configured ?? false
     readonly property real fiveHour: available ? (agent.fiveHour ?? -1) : -1
@@ -39,9 +40,22 @@ RowLayout {
         return qsTr("%1d").arg(Math.max(0, Math.ceil((reset - nowEpoch) / 86400)));
     }
 
+    function cacheAge(observedAt: real): string {
+        if (observedAt <= 0)
+            return qsTr("Cached");
+        const seconds = Math.max(0, nowEpoch - observedAt);
+        if (seconds < 120)
+            return qsTr("Cached · 1m");
+        if (seconds < 3600)
+            return qsTr("Cached · %1m").arg(Math.floor(seconds / 60));
+        if (seconds < 86400)
+            return qsTr("Cached · %1h").arg(Math.floor(seconds / 3600));
+        return qsTr("Cached · %1d").arg(Math.floor(seconds / 86400));
+    }
+
     Timer {
         interval: 60000
-        running: root.available
+        running: true
         repeat: true
         triggeredOnStart: true
         onTriggered: root.nowEpoch = Math.floor(Date.now() / 1000)
@@ -97,8 +111,8 @@ RowLayout {
             }
 
             StyledText {
-                visible: root.available && (root.agent?.stale ?? false)
-                text: qsTr("Cached")
+                visible: !root.isAntigravity && root.available && (root.agent?.stale ?? false)
+                text: root.cacheAge(root.agent?.observedAt ?? 0)
                 font: Tokens.font.body.small
                 color: Colours.palette.m3onSurfaceVariant
             }
@@ -115,7 +129,7 @@ RowLayout {
         RowLayout {
             Layout.fillWidth: true
             spacing: Tokens.spacing.large
-            visible: root.available
+            visible: root.available && !root.isAntigravity
 
             AgentGauge {
                 Layout.fillWidth: true
@@ -134,11 +148,72 @@ RowLayout {
             }
         }
 
+        // Antigravity has two *independent* quota pools; do not combine their
+        // 5-hour or weekly limits into an artificial worst-case reading.
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: root.isAntigravity
+            spacing: Tokens.spacing.small
+
+            Repeater {
+                model: root.agent?.pools ?? []
+
+                ColumnLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: Tokens.spacing.extraSmall
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Tokens.spacing.small
+
+                        StyledText {
+                            text: modelData.name
+                            font: Tokens.font.body.small
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                        }
+
+                        StyledText {
+                            visible: modelData.stale && modelData.available
+                            text: root.cacheAge(modelData.observedAt ?? 0)
+                            font: Tokens.font.body.small
+                            color: Colours.palette.m3onSurfaceVariant
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Tokens.spacing.large
+
+                        AgentGauge {
+                            Layout.fillWidth: true
+                            label: modelData.fiveHourResets > root.nowEpoch
+                                ? root.shortResetText(modelData.fiveHourResets) : qsTr("5H")
+                            value: modelData.fiveHour ?? -1
+                            accent: root.accent
+                        }
+
+                        AgentGauge {
+                            Layout.fillWidth: true
+                            label: modelData.weeklyResets > root.nowEpoch
+                                ? root.weeklyResetText(modelData.weeklyResets) : qsTr("WEEK")
+                            value: modelData.weekly ?? -1
+                            accent: root.accent
+                        }
+                    }
+                }
+            }
+        }
+
         // Keeps an unavailable agent the same height as an available one, so
         // the three rows stay on a grid however many are signed in
         Item {
             Layout.fillWidth: true
-            visible: !root.available
+            visible: !root.available && !root.isAntigravity
             implicitHeight: Tokens.padding.small
         }
     }

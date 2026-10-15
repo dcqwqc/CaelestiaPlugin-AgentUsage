@@ -84,9 +84,11 @@ class ClaudeRefreshTests(unittest.TestCase):
         self.mod.private_json(self.mod.CLAUDE_LAST_GOOD,
                               {"generated": int(time.time()) - 1900, "reading": previous})
         result = self.mod.claude_usage_fallback("Usage rate-limited")
-        self.assertFalse(result["available"])
+        self.assertTrue(result["available"])
+        self.assertTrue(result["stale"])
         self.assertTrue(result["configured"])
-        self.assertEqual(result["fiveHour"], -1)
+        self.assertEqual(result["fiveHour"], .24)
+        self.assertGreater(int(time.time()) - result["observedAt"], 1800)
 
     def test_concurrent_newer_token_is_not_overwritten(self):
         self.original["claudeAiOauth"]["accessToken"] = "already-renewed"

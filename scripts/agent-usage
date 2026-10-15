@@ -46,6 +46,13 @@ CACHE = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "caelestia-agent-usage.json"
 )
 
+# Long-lived, last successfully observed data. This deliberately survives
+# logouts/reboots, unlike the short-lived poll cache under XDG_RUNTIME_DIR.
+LAST_GOOD = os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"),
+    "caelestia-agent-usage-last-good.json",
+)
+
 FIVE_HOUR = 300       # minutes
 WEEK = 7 * 24 * 60    # minutes
 
@@ -153,22 +160,20 @@ def delay_claude_refresh(http_error):
 
 
 def claude_usage_fallback(reason):
-    """Only show recent verified readings; never manufacture percentages."""
+    """Use the last known reading, never turning missing data into 0%."""
     previous = read_json(CLAUDE_LAST_GOOD)
     sample = previous.get("reading") or {}
-    age = time.time() - previous.get("generated", 0)
-    if 0 <= age <= 1800 and sample.get("available"):
+    if sample.get("available"):
         answer = dict(sample)
         answer["stale"] = True
+        answer["configured"] = True
         answer["detail"] = reason
+        answer["observedAt"] = int(previous.get("generated", 0))
         return answer
     answer = unavailable("claude", "Claude Code", reason)
-    # Possessing credentials does not prove the CLI can run, but the panel
-    # should not make an installed agent look uninstalled over a usage outage.
+    # Monitoring availability is not the same thing as CLI availability.
     answer["configured"] = True
     return answer
-
-
 
 
 def refresh_claude_token(oauth):
@@ -390,7 +395,8 @@ def codex(_timeout):
         "fiveHourResets": short_reset,
         "weeklyResets": long_reset,
         "detail": None,
-        "stale": short_stale or long_stale,
+        "stale": short_stale or long_stale or (time.time() - seen > 120),
+        "observedAt": int(seen),
     }
 
 
@@ -464,52 +470,89 @@ def _find_key(obj, key):
 # --------------------------------------------------------------------------
 
 AGY_BIN = os.path.join(HOME, ".local", "bin", "agy")
-AGY_POOLS = {"gemini": "Gemini Models", "claude-gpt": "Claude and GPT models"}
+AGY_POOLS = (
+    ("gemini", "Google", "Gemini Models"),
+    ("claude-gpt", "Claude / GPT", "Claude and GPT models"),
+)
 
 
 def antigravity(timeout):
     name = "Antigravity"
-
+    stored = (read_json(LAST_GOOD).get("agents") or {}).get("antigravity") or {}
+    old_pools = {p.get("id"): p for p in stored.get("pools", [])}
     agy = AGY_BIN if os.access(AGY_BIN, os.X_OK) else shutil.which("agy")
+    readings = {}
+    problem = None
+
     if not agy:
-        return unavailable("antigravity", name, "not installed")
+        problem = "not installed"
+    else:
+        try:
+            out = subprocess.run(
+                [agy, "-p", "/usage"],
+                capture_output=True,
+                text=True,
+                timeout=max(timeout, 20),
+            )
+            if out.returncode == 0:
+                readings = _agy_parse(out.stdout)
+                if not readings:
+                    problem = "no usage recorded"
+            else:
+                # A failed /usage request does not prove a sign-out.
+                problem = "not answering"
+        except (subprocess.TimeoutExpired, OSError):
+            problem = "not answering"
 
-    try:
-        out = subprocess.run(
-            [agy, "-p", "/usage"],
-            capture_output=True,
-            text=True,
-            timeout=max(timeout, 20),
-        )
-    except subprocess.TimeoutExpired:
-        return unavailable("antigravity", name, "not answering")
-    except OSError:
-        return unavailable("antigravity", name, "not installed")
+    now = int(time.time())
+    pools = []
+    for pool_id, title, source_name in AGY_POOLS:
+        measurements = readings.get(source_name) or {}
+        previous = old_pools.get(pool_id) or {}
+        values = {}
+        observed = []
+        used_cache = False
 
-    if out.returncode != 0:
-        return unavailable("antigravity", name, "not signed in")
+        for key, reset_key in (("fiveHour", "fiveHourResets"),
+                               ("weekly", "weeklyResets")):
+            if key in measurements:
+                values[key], values[reset_key] = measurements[key]
+                observed.append(now)
+            elif previous.get(key, -1) >= 0:
+                values[key] = previous[key]
+                values[reset_key] = previous.get(reset_key, 0)
+                observed.append(int(previous.get("observedAt") or
+                                    stored.get("observedAt") or 0))
+                used_cache = True
+            else:
+                values[key], values[reset_key] = -1, 0
 
-    pools = _agy_parse(out.stdout)
-    if not pools:
-        return unavailable("antigravity", name, "no usage recorded")
+        available = values["fiveHour"] >= 0 or values["weekly"] >= 0
+        pools.append({
+            "id": pool_id, "name": title,
+            "available": available,
+            **values,
+            "stale": used_cache or not bool(measurements),
+            # Oldest measured window determines how stale the row is.
+            "observedAt": min(observed) if observed else 0,
+            "detail": problem if not measurements else None,
+        })
 
-    wanted = os.environ.get("CAELESTIA_AGENT_USAGE_AGY_POOL", "worst")
-    short = _agy_pick(pools, "fiveHour", wanted)
-    long = _agy_pick(pools, "weekly", wanted)
-
-    if short is None and long is None:
-        return unavailable("antigravity", name, "no usage recorded")
-
+    available = any(p["available"] for p in pools)
+    fresh = any(readings.get(name) for _, _, name in AGY_POOLS)
     return {
-        "id": "antigravity",
-        "name": name,
-        "available": True,
-        "fiveHour": short[0] if short else -1,
-        "weekly": long[0] if long else -1,
-        "fiveHourResets": short[1] if short else 0,
-        "weeklyResets": long[1] if long else 0,
-        "detail": None,
-        "stale": False,
+        "id": "antigravity", "name": name,
+        "available": available,
+        "configured": bool(agy),
+        "fiveHour": max((p["fiveHour"] for p in pools), default=-1),
+        "weekly": max((p["weekly"] for p in pools), default=-1),
+        "fiveHourResets": 0, "weeklyResets": 0,
+        "pools": pools,
+        "detail": problem if not fresh else None,
+        "stale": any(p["stale"] and p["available"] for p in pools),
+        "observedAt": min((p["observedAt"] for p in pools if p["available"]),
+                          default=0),
+        # No single "Antigravity usage" exists; the two pools are independent.
     }
 
 
@@ -548,31 +591,57 @@ def _agy_parse(text):
     return pools
 
 
-def _agy_pick(pools, window, wanted):
-    """One window out of the pools agy reports.
-
-    agy bills Gemini apart from the Claude and GPT models it can also drive, so
-    there is no single number. Unless a pool is asked for by name, the one
-    nearest its limit is the one worth showing -- it is the one that will stop
-    you first.
-    """
-    named = AGY_POOLS.get(wanted)
-    if named:
-        found = pools.get(named, {}).get(window)
-        return found
-
-    readings = [p[window] for p in pools.values() if window in p]
-    return max(readings, key=lambda r: r[0]) if readings else None
 
 
 COLLECTORS = [claude, codex, antigravity]
 
 
+def _known_reading(agent_id, fallback, stored):
+    """On a collector outage, retain the observed readings, with provenance."""
+    previous = stored.get(agent_id) or {}
+    if not previous.get("available"):
+        return fallback
+    recovered = dict(previous)
+    recovered["stale"] = True
+    recovered["detail"] = fallback.get("detail") or "Usage refresh unavailable"
+    recovered["observedAt"] = int(previous.get("observedAt", 0))
+    return recovered
+
+
 def collect(timeout):
-    return {
-        "generated": int(time.time()),
-        "agents": [collector(timeout) for collector in COLLECTORS],
-    }
+    now = int(time.time())
+    stored = read_json(LAST_GOOD).get("agents") or {}
+    updated = dict(stored)
+    agents = []
+    for collector in COLLECTORS:
+        try:
+            item = collector(timeout)
+        except Exception:
+            # A broken collector must not make the entire panel disappear.
+            ident = {"claude": "Claude Code", "codex": "Codex",
+                     "antigravity": "Antigravity"}[collector.__name__]
+            item = unavailable(collector.__name__, ident, "usage refresh failed")
+
+        if not item.get("available"):
+            item = _known_reading(item["id"], item, stored)
+
+        if item.get("available"):
+            # An agent can contain mixed live/cached windows. Preserve the
+            # original measurement time for cached data; never re-date it.
+            item.setdefault("observedAt", now)
+            if not item.get("stale"):
+                updated[item["id"]] = item
+            elif item["id"] == "antigravity":
+                # A fresh Antigravity pool must still be saved even when its
+                # sibling pool failed; preserve each cached pool's timestamp.
+                fresh = [p for p in item["pools"]
+                         if p["available"] and not p["stale"]]
+                if fresh:
+                    updated[item["id"]] = item
+        agents.append(item)
+
+    private_json(LAST_GOOD, {"agents": updated})
+    return {"generated": now, "agents": agents}
 
 
 def cached(max_age):

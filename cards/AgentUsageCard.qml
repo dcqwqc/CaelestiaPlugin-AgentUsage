@@ -54,13 +54,6 @@ StyledRect {
         when: !!root.settings
     }
 
-    Binding {
-        target: Agents.AgentUsage
-        property: "antigravityPool"
-        value: root.settings?.antigravityPool ?? "worst"
-        when: !!root.settings
-    }
-
     ColumnLayout {
         id: layout
 

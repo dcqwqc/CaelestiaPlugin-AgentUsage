@@ -14,10 +14,6 @@ Singleton {
 
     // Seconds between polls. The card binds this from the plugin settings.
     property int interval: 120
-    // Which of agy's limit pools to show, or "worst" for whichever of them is
-    // nearest its limit.
-    property string antigravityPool: "worst"
-
     property var agents: []
     property bool ready: false
     property bool failed: false
@@ -31,15 +27,11 @@ Singleton {
     // A poll never costs more than the cache allows, so a refresh forced by a
     // card appearing cannot hammer the endpoints behind it.
     onIntervalChanged: timer.restart()
-    onAntigravityPoolChanged: refresh()
 
     Process {
         id: proc
 
         command: [root.script, "--max-age", Math.max(15, Math.round(root.interval / 2)).toString()]
-        environment: ({
-            CAELESTIA_AGENT_USAGE_AGY_POOL: root.antigravityPool
-        })
         running: false
 
         stdout: StdioCollector {

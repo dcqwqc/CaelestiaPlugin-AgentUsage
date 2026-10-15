@@ -4,7 +4,7 @@ SettingsObject {
     property int refreshSeconds: 120
     SettingMeta on refreshSeconds {
         label: "Refresh interval"
-        description: "Seconds between usage polls. Claude Code is asked over the network; the others are read off disk."
+        description: "Seconds between usage polls. Each agent is refreshed independently; last verified readings survive failures."
         icon: "update"
         inputType: SettingMeta.SpinBox
         min: 30
@@ -39,17 +39,9 @@ SettingsObject {
     property bool showAntigravity: true
     SettingMeta on showAntigravity {
         label: "Show Antigravity"
-        description: "Hidden rows still show as unavailable when Antigravity is not installed."
+        description: "Shows Google/Gemini and Claude/GPT quotas separately, including last verified readings."
         icon: "rocket_launch"
         inputType: SettingMeta.Switch
     }
 
-    property string antigravityPool: "worst"
-    SettingMeta on antigravityPool {
-        label: "Antigravity limit pool"
-        description: "agy bills Gemini apart from the Claude and GPT models it can also drive. Worst shows whichever is nearest its limit."
-        icon: "filter_alt"
-        inputType: SettingMeta.SplitButton
-        options: ["worst", "gemini", "claude-gpt"]
-    }
 }

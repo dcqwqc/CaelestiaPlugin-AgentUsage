@@ -19,7 +19,7 @@ swells as the agent gets used up, the way the CPU card's usage blob does.
 
 Claude Code's access token is refreshed using a JSON OAuth request. Failed
 token renewals back off across polls, respecting HTTP 429 and the provider's
-\`Retry-After\` header. This does not change Claude's actual limits or guarantee
+`Retry-After` header. This does not change Claude's actual limits or guarantee
 provider availability. When possible, the panel shows the last verified reading
 for up to 30 minutes, labeled **Cached**. Otherwise it reports the usage-data
 problem rather than suggesting Claude Code itself is uninstalled. Credential
@@ -77,9 +77,8 @@ Then enable `dcqwqc/agentusage` on the Plugins page.
 
 | Setting | Default | |
 |---|---|---|
-| Refresh interval | 120s | Claude Code is asked over the network, the rest is read off disk. |
+| Refresh interval | 120s | Claude Code and Antigravity are queried; Codex session logs are read locally. |
 | Show Claude Code / Codex / Antigravity | on | Hides a row entirely. |
-| Antigravity limit pool | worst | `worst`, `gemini` or `claude-gpt` — see below. |
 
 The collector caches to `$XDG_RUNTIME_DIR/caelestia-agent-usage.json` for half
 the refresh interval, so several shells on one machine do not each go asking.
@@ -97,8 +96,15 @@ Claude and GPT models    Weekly Limit Remaining     66%    2026-09-27T19:48:19Z
 Claude and GPT models    Five Hour Limit Remaining 100%    2026-09-21T22:37:26Z
 ```
 
-The row shows whichever pool is nearest its limit, per window, because that is
-the one that will stop you first. Pin it to one pool in the settings instead.
+Antigravity displays **two stacked rows**, Google (Gemini Models) and Claude
+/ GPT (Claude and GPT models). Each pool has its own **5-hour** and **weekly**
+gauges; they are never mixed together. A successful reading is saved in
+`~/.cache/caelestia-agent-usage-last-good.json` and survives restarts. A
+failed or partial reading retains the last observed values **per pool and per
+window** (where available), marked `Cached · <age>` so old information is never
+mistaken for live availability. This fallback also applies to Claude Code and
+Codex usage. Before a successful reading exists, unknown values stay unknown,
+not zero.
 
 Asking costs about 2.5s of process startup, so the cache matters here more than
 for the others.
