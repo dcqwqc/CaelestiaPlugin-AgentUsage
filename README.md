@@ -15,15 +15,19 @@ swells as the agent gets used up, the way the CPU card's usage blob does.
 
 | Agent | Where the reading comes from |
 |---|---|
-| Claude Code | The usage endpoint, asked with the OAuth credentials Claude Code already stores in `~/.claude/.credentials.json`. |
+| Claude Code | Primarily native statusLine rate-limit data (no network calls); the usage endpoint is a fallback. |
 
-Claude Code's access token is refreshed using a JSON OAuth request. Failed
-token renewals back off across polls, respecting HTTP 429 and the provider's
-`Retry-After` header. This does not change Claude's actual limits or guarantee
-provider availability. When possible, the panel shows the last verified reading
-for up to 30 minutes, labeled **Cached**. Otherwise it reports the usage-data
-problem rather than suggesting Claude Code itself is uninstalled. Credential
-files stay private (mode 0600), with a write-time token-rotation check.
+Claude Code's native statusLine data is now the preferred source. Install
+scripts/claude-statusline-capture as the command in Claude Code's settings.
+After a Claude API response, the status line passes 5-hour and weekly quota
+percentages directly to the collector without extra network calls. Only quota
+percentages, reset times, and measurement time are stored locally; no prompts,
+conversation contents, or credentials.
+
+The dashboard keeps the last verified values across restarts and displays
+Cached for older readings. If Claude has not yet emitted native quota data,
+the legacy usage endpoint may still fail with HTTP 429; its retries are
+backed off. Being signed in does not guarantee the usage endpoint works.
 
 | Codex | The `rate_limits` record the server returns with every response, as written into the newest session log under `~/.codex/sessions`. |
 | Antigravity | `agy -p /usage`, which answers the CLI's read-only slash commands in print mode without spending a turn. |

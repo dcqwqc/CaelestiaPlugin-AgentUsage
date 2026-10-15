@@ -283,6 +283,19 @@ def refresh_claude_token(oauth):
 def claude(timeout):
     name = "Claude Code"
 
+    # Prefer Claude Code's own quota snapshot from statusLine stdin. That
+    # requires no OAuth token handling and no extra calls to the 429-prone API.
+    native = read_json(CLAUDE_LAST_GOOD)
+    sample = native.get("reading") or {}
+    age = time.time() - native.get("generated", 0)
+    if (sample.get("source") == "claude-statusline"
+            and sample.get("available") and 0 <= age < 300):
+        result = dict(sample)
+        result["stale"] = False
+        result["detail"] = None
+        result["observedAt"] = int(native["generated"])
+        return result
+
     try:
         with open(CLAUDE_CREDS) as f:
             oauth = json.load(f).get("claudeAiOauth") or {}

@@ -91,7 +91,9 @@ ColumnLayout {
         // One quiet status on the header, not a tooltip/paragraph per pool.
         StyledText {
             visible: !root.available || (root.agent?.stale ?? false)
-            text: !root.available ? qsTr("No data") : qsTr("Cached")
+            text: root.available ? qsTr("Cached")
+                : root.agent?.detail === "Usage rate-limited"
+                  ? qsTr("Rate limited") : qsTr("No data")
             font: Tokens.font.body.small
             color: Colours.palette.m3onSurfaceVariant
         }
