@@ -6,9 +6,8 @@ import qs.components
 import qs.services
 import dcqwqc.agentusage.components
 
-// One agent: its mark in a blob that swells with how much of the agent has
-// been spent, then the two windows it is billed against.
-RowLayout {
+// Compact header + quota lines. Antigravity keeps its two independent pools.
+ColumnLayout {
     id: root
 
     required property var agent
@@ -21,7 +20,7 @@ RowLayout {
     readonly property real weekly: available ? (agent.weekly ?? -1) : -1
     readonly property real peak: Math.max(fiveHour, weekly)
     readonly property color colour: (available || configured) ? accent : Colours.palette.m3onSurfaceVariant
-    // Keep the labels counting down between usage polls as well.
+
     property int nowEpoch: Math.floor(Date.now() / 1000)
 
     function shortResetText(reset: real): string {
@@ -35,23 +34,10 @@ RowLayout {
     }
 
     function weeklyResetText(reset: real): string {
-        // A week label is deliberately days-only: it replaces WEEK without
-        // widening the card and answers the useful long-window question.
         return qsTr("%1d").arg(Math.max(0, Math.ceil((reset - nowEpoch) / 86400)));
     }
 
-    function cacheAge(observedAt: real): string {
-        if (observedAt <= 0)
-            return qsTr("Cached");
-        const seconds = Math.max(0, nowEpoch - observedAt);
-        if (seconds < 120)
-            return qsTr("Cached · 1m");
-        if (seconds < 3600)
-            return qsTr("Cached · %1m").arg(Math.floor(seconds / 60));
-        if (seconds < 86400)
-            return qsTr("Cached · %1h").arg(Math.floor(seconds / 3600));
-        return qsTr("Cached · %1d").arg(Math.floor(seconds / 86400));
-    }
+    spacing: Tokens.spacing.extraSmall
 
     Timer {
         interval: 60000
@@ -61,160 +47,124 @@ RowLayout {
         onTriggered: root.nowEpoch = Math.floor(Date.now() / 1000)
     }
 
-    spacing: Tokens.spacing.medium
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Tokens.spacing.small
 
-    MaterialShape {
-        Layout.alignment: Qt.AlignVCenter
+        MaterialShape {
+            Layout.alignment: Qt.AlignVCenter
+            implicitSize: logo.implicitHeight + Tokens.padding.small
+            color: root.available ? Colours.palette.m3secondaryContainer
+                                  : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+            opacity: (root.available || root.configured) ? 1 : 0.7
 
-        implicitSize: logo.implicitHeight + Tokens.padding.large
-        color: root.available ? Colours.palette.m3secondaryContainer : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
-        opacity: (root.available || root.configured) ? 1 : 0.7
+            shape: {
+                if (root.peak >= 0.8)
+                    return MaterialShape.SoftBurst;
+                if (root.peak >= 0.4)
+                    return MaterialShape.Sunny;
+                return MaterialShape.Cookie4Sided;
+            }
 
-        shape: {
-            if (root.peak >= 0.8)
-                return MaterialShape.SoftBurst;
-            if (root.peak >= 0.4)
-                return MaterialShape.Sunny;
-            return MaterialShape.Cookie4Sided;
+            Behavior on color {
+                CAnim {}
+            }
+
+            AgentLogo {
+                id: logo
+                anchors.centerIn: parent
+                agent: root.agent?.id ?? ""
+                colour: root.colour
+            }
         }
 
-        Behavior on color {
-            CAnim {}
+        StyledText {
+            text: root.agent?.name ?? ""
+            font: Tokens.font.title.small
+            color: root.colour
         }
 
-        AgentLogo {
-            id: logo
+        Item {
+            Layout.fillWidth: true
+        }
 
-            anchors.centerIn: parent
-            agent: root.agent?.id ?? ""
-            colour: root.colour
+        // One quiet status on the header, not a tooltip/paragraph per pool.
+        StyledText {
+            visible: !root.available || (root.agent?.stale ?? false)
+            text: !root.available ? qsTr("No data") : qsTr("Cached")
+            font: Tokens.font.body.small
+            color: Colours.palette.m3onSurfaceVariant
+        }
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+        visible: !root.isAntigravity && root.available
+        spacing: Tokens.spacing.small
+
+        AgentGauge {
+            Layout.fillWidth: true
+            label: root.agent?.fiveHourResets > root.nowEpoch
+                   ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5H")
+            value: root.fiveHour
+            accent: root.accent
+        }
+
+        AgentGauge {
+            Layout.fillWidth: true
+            label: root.agent?.weeklyResets > root.nowEpoch
+                   ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("WEEK")
+            value: root.weekly
+            accent: root.accent
         }
     }
 
     ColumnLayout {
         Layout.fillWidth: true
-        Layout.alignment: Qt.AlignVCenter
-        spacing: Tokens.spacing.small
+        visible: root.isAntigravity
+        spacing: Tokens.spacing.extraSmall
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Tokens.spacing.small
+        Repeater {
+            model: root.agent?.pools ?? []
 
-            StyledText {
-                text: root.agent?.name ?? ""
-                font: Tokens.font.title.small
-                color: root.colour
-            }
-
-            Item {
+            RowLayout {
+                required property var modelData
                 Layout.fillWidth: true
-            }
+                spacing: Tokens.spacing.small
+                opacity: modelData.stale ? 0.75 : 1
 
-            StyledText {
-                visible: !root.isAntigravity && root.available && (root.agent?.stale ?? false)
-                text: root.cacheAge(root.agent?.observedAt ?? 0)
-                font: Tokens.font.body.small
-                color: Colours.palette.m3onSurfaceVariant
-            }
+                StyledText {
+                    Layout.minimumWidth: poolNameMetrics.width
+                    Layout.preferredWidth: poolNameMetrics.width
+                    Layout.maximumWidth: poolNameMetrics.width
+                    text: modelData.id === "gemini" ? qsTr("Google") : qsTr("Claude/GPT")
+                    font: Tokens.font.body.small
+                    color: Colours.palette.m3onSurfaceVariant
+                    elide: Text.ElideRight
+                }
 
-            StyledText {
-                visible: !root.available && text.length > 0
-                text: root.agent?.detail ?? ""
-                font: Tokens.font.body.small
-                color: Colours.palette.m3onSurfaceVariant
-                elide: Text.ElideRight
-            }
-        }
+                TextMetrics {
+                    id: poolNameMetrics
+                    font: Tokens.font.body.small
+                    text: "Claude/GPT"
+                }
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Tokens.spacing.large
-            visible: root.available && !root.isAntigravity
-
-            AgentGauge {
-                Layout.fillWidth: true
-                label: root.agent?.fiveHourResets > root.nowEpoch
-                    ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5H")
-                value: root.fiveHour
-                accent: root.accent
-            }
-
-            AgentGauge {
-                Layout.fillWidth: true
-                label: root.agent?.weeklyResets > root.nowEpoch
-                    ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("WEEK")
-                value: root.weekly
-                accent: root.accent
-            }
-        }
-
-        // Antigravity has two *independent* quota pools; do not combine their
-        // 5-hour or weekly limits into an artificial worst-case reading.
-        ColumnLayout {
-            Layout.fillWidth: true
-            visible: root.isAntigravity
-            spacing: Tokens.spacing.small
-
-            Repeater {
-                model: root.agent?.pools ?? []
-
-                ColumnLayout {
-                    required property var modelData
+                AgentGauge {
                     Layout.fillWidth: true
-                    spacing: Tokens.spacing.extraSmall
+                    compact: true
+                    label: qsTr("5h")
+                    value: modelData.fiveHour ?? -1
+                    accent: root.accent
+                }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.small
-
-                        StyledText {
-                            text: modelData.name
-                            font: Tokens.font.body.small
-                            color: Colours.palette.m3onSurfaceVariant
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                        }
-
-                        StyledText {
-                            visible: modelData.stale && modelData.available
-                            text: root.cacheAge(modelData.observedAt ?? 0)
-                            font: Tokens.font.body.small
-                            color: Colours.palette.m3onSurfaceVariant
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Tokens.spacing.large
-
-                        AgentGauge {
-                            Layout.fillWidth: true
-                            label: modelData.fiveHourResets > root.nowEpoch
-                                ? root.shortResetText(modelData.fiveHourResets) : qsTr("5H")
-                            value: modelData.fiveHour ?? -1
-                            accent: root.accent
-                        }
-
-                        AgentGauge {
-                            Layout.fillWidth: true
-                            label: modelData.weeklyResets > root.nowEpoch
-                                ? root.weeklyResetText(modelData.weeklyResets) : qsTr("WEEK")
-                            value: modelData.weekly ?? -1
-                            accent: root.accent
-                        }
-                    }
+                AgentGauge {
+                    Layout.fillWidth: true
+                    compact: true
+                    label: qsTr("7d")
+                    value: modelData.weekly ?? -1
+                    accent: root.accent
                 }
             }
-        }
-
-        // Keeps an unavailable agent the same height as an available one, so
-        // the three rows stay on a grid however many are signed in
-        Item {
-            Layout.fillWidth: true
-            visible: !root.available && !root.isAntigravity
-            implicitHeight: Tokens.padding.small
         }
     }
 }

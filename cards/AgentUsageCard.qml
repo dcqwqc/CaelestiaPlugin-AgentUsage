@@ -45,7 +45,7 @@ StyledRect {
     // the dashboard's total width by a pixel or two and visibly nudge the whole
     // panel. Keep the card geometry invariant while live values update.
     implicitWidth: 320
-    implicitHeight: layout.implicitHeight + Tokens.padding.large * 2
+    implicitHeight: layout.implicitHeight + Tokens.padding.medium * 2
 
     Binding {
         target: Agents.AgentUsage
@@ -58,12 +58,12 @@ StyledRect {
         id: layout
 
         anchors.fill: parent
-        anchors.leftMargin: Tokens.padding.largeIncreased
-        anchors.rightMargin: Tokens.padding.largeIncreased
-        anchors.topMargin: Tokens.padding.large
-        anchors.bottomMargin: Tokens.padding.large
+        anchors.leftMargin: Tokens.padding.large
+        anchors.rightMargin: Tokens.padding.large
+        anchors.topMargin: Tokens.padding.medium
+        anchors.bottomMargin: Tokens.padding.medium
 
-        spacing: Tokens.spacing.medium
+        spacing: Tokens.spacing.small
 
         RowLayout {
             id: headerRow
@@ -89,16 +89,6 @@ StyledRect {
                 text: qsTr("Agents")
                 font: Tokens.font.title.medium
             }
-
-            Item {
-                Layout.fillWidth: true
-            }
-
-            StyledText {
-                text: qsTr("Limits")
-                font: Tokens.font.body.small
-                color: Colours.palette.m3onSurfaceVariant
-            }
         }
 
         // Keep the repeated agent rows in a real layout container. Giving each
@@ -110,7 +100,7 @@ StyledRect {
             id: agentsColumn
 
             Layout.fillWidth: true
-            spacing: Tokens.spacing.medium
+            spacing: Tokens.spacing.small
             visible: root.shown.length > 0
 
             Repeater {

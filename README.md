@@ -96,15 +96,15 @@ Claude and GPT models    Weekly Limit Remaining     66%    2026-09-27T19:48:19Z
 Claude and GPT models    Five Hour Limit Remaining 100%    2026-09-21T22:37:26Z
 ```
 
-Antigravity displays **two stacked rows**, Google (Gemini Models) and Claude
-/ GPT (Claude and GPT models). Each pool has its own **5-hour** and **weekly**
-gauges; they are never mixed together. A successful reading is saved in
-`~/.cache/caelestia-agent-usage-last-good.json` and survives restarts. A
-failed or partial reading retains the last observed values **per pool and per
-window** (where available), marked `Cached · <age>` so old information is never
-mistaken for live availability. This fallback also applies to Claude Code and
-Codex usage. Before a successful reading exists, unknown values stay unknown,
-not zero.
+Antigravity displays **two compact lines** below its title: Google and
+Claude/GPT. Each line shows the **5h** and **7d** usage bars side by side.
+The two pools are never combined into an artificial overall percentage.
+Successful readings persist in `~/.cache/caelestia-agent-usage-last-good.json`,
+including across restarts. When refreshing fails, the last known value remains
+visible with a small **Cached** indicator rather than lengthy error messages.
+Antigravity retains cached readings independently for each pool/window; Claude
+Code and Codex also retain their last known readings. Unobserved values stay
+unknown instead of being reported as zero.
 
 Asking costs about 2.5s of process startup, so the cache matters here more than
 for the others.

@@ -12,6 +12,7 @@ RowLayout {
     required property string label
     required property real value
     required property color accent
+    property bool compact: false
 
     readonly property bool known: value >= 0
     // A window this close to its limit is worth reading as a warning. Not the
@@ -21,7 +22,7 @@ RowLayout {
     readonly property bool critical: known && value >= 0.9
     readonly property color emphasis: Colours.palette.m3inverseSurface
 
-    spacing: Tokens.spacing.small
+    spacing: root.compact ? Tokens.spacing.extraSmall : Tokens.spacing.small
 
     StyledText {
         // Countdown strings change every minute (for example 4h 11m -> 4h 10m).
@@ -41,8 +42,9 @@ RowLayout {
         id: labelMetrics
 
         font: Tokens.font.body.small
-        // Wider than every current reset label (5-hour and weekly windows).
-        text: "88h 88m"
+        // Compact Antigravity labels are fixed 5h/7d; the other rows
+        // retain a wider cell for their live reset countdown.
+        text: root.compact ? "5h" : "88h 88m"
     }
 
     StyledProgressBar {
