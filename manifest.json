@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "author": "dcqwqc",
   "homepage": "https://github.com/dcqwqc/CaelestiaPlugin-AgentUsage",
-  "icon": "smart_toy",
+  "icon": "auto_awesome",
   "description": "Five-hour and weekly usage limits for Claude Code, Codex and Antigravity, as a card beside the CPU in the dashboard's Performance tab.",
   "entryPoints": [
     {

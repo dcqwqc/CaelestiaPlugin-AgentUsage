@@ -75,7 +75,7 @@ StyledRect {
             spacing: Tokens.spacing.small
 
             MaterialIcon {
-                text: "smart_toy"
+                text: "auto_awesome"
                 fill: 1
                 color: root.accent
                 fontStyle: Tokens.font.icon.builders.medium.weight(Font.DemiBold).build()
