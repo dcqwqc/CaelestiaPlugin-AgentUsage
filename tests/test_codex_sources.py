@@ -52,28 +52,31 @@ class CodexSourcesTests(unittest.TestCase):
         self.assertEqual(result["source"], "Philipedia")
         self.assertEqual(result["fiveHour"], 1)
         self.assertEqual(result["weekly"], .36)
+        self.assertFalse(result["stale"])  # 3 min old still counts as live
+
+    def test_old_local_alone_is_still_shown(self):
+        result = self.collect_codex(self.local, None)
+        self.assertTrue(result["available"])
         self.assertTrue(result["stale"])
 
-    def test_offline_remote_does_not_resurrect_old_local(self):
-        result = self.collect_codex(self.local, None)
-        self.assertFalse(result["available"])
-        self.assertEqual(result["weekly"], -1)
-
-    def test_expired_window_is_unknown_not_zero_used(self):
+    def test_expired_window_has_refilled(self):
         remote = dict(self.remote)
         remote["primary"] = dict(remote["primary"], resets_at=self.now - 1)
         result = self.collect_codex(None, remote)
         self.assertTrue(result["available"])
-        self.assertEqual(result["fiveHour"], -1)
+        self.assertEqual(result["fiveHour"], 0)
         self.assertEqual(result["weekly"], .36)
+        self.assertTrue(result["stale"])
 
-    def test_both_expired_is_unavailable(self):
+    def test_both_expired_still_available(self):
         remote = dict(self.remote)
         remote["primary"] = dict(remote["primary"], resets_at=self.now - 1)
         remote["secondary"] = dict(remote["secondary"], resets_at=self.now - 1)
-        self.assertFalse(self.collect_codex(None, remote)["available"])
+        result = self.collect_codex(None, remote)
+        self.assertTrue(result["available"])
+        self.assertEqual((result["fiveHour"], result["weekly"]), (0, 0))
 
-    def test_fallback_does_not_reuse_expired_quota(self):
+    def test_fallback_refills_expired_window(self):
         previous = {
             "id": "codex", "available": True, "observedAt": self.now - 100,
             "fiveHour": 1.0, "fiveHourResets": self.now - 1,
@@ -82,20 +85,21 @@ class CodexSourcesTests(unittest.TestCase):
         fallback = self.mod.unavailable("codex", "Codex", "offline")
         with patch.object(self.mod.time, "time", return_value=self.now):
             result = self.mod._known_reading("codex", fallback, {"codex": previous})
-        self.assertEqual(result["fiveHour"], -1)
+        self.assertEqual(result["fiveHour"], 0)
         self.assertEqual(result["weekly"], .36)
         self.assertTrue(result["stale"])
 
-    def test_fallback_rejects_very_old_snapshot(self):
+    def test_fallback_keeps_very_old_snapshot(self):
         previous = {
             "id": "codex", "available": True,
-            "observedAt": self.now - self.mod.CODEX_MAX_AGE - 1,
+            "observedAt": self.now - 30 * 86400,
             "fiveHour": 1.0, "weekly": .36,
         }
         fallback = self.mod.unavailable("codex", "Codex", "offline")
         with patch.object(self.mod.time, "time", return_value=self.now):
             result = self.mod._known_reading("codex", fallback, {"codex": previous})
-        self.assertFalse(result["available"])
+        self.assertTrue(result["available"])
+        self.assertTrue(result["stale"])
 
     def test_invalid_ssh_hostname_rejected_without_executing(self):
         with patch.object(self.mod.subprocess, "run") as run:

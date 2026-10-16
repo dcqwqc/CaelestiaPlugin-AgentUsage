@@ -23,6 +23,16 @@ ColumnLayout {
 
     property int nowEpoch: Math.floor(Date.now() / 1000)
 
+    // Shared column grid for every agent: [short label | bar | %] [week label | bar | %].
+    // The short label cell fits both a countdown and an Antigravity pool name,
+    // so Claude, Codex and both Antigravity pools start their bars at the same x.
+    readonly property real shortLabelWidth: Math.ceil(Math.max(countdownMetrics.width, poolMetrics.width))
+    readonly property real weekLabelWidth: Math.ceil(weekMetrics.width)
+
+    TextMetrics { id: countdownMetrics; font: Tokens.font.body.small; text: "88h 88m" }
+    TextMetrics { id: poolMetrics; font: Tokens.font.body.small; text: "Claude/GPT" }
+    TextMetrics { id: weekMetrics; font: Tokens.font.body.small; text: "88d" }
+
     function shortResetText(reset: real): string {
         let mins = Math.max(0, Math.ceil((reset - nowEpoch) / 60));
         if (mins < 60)
@@ -42,7 +52,8 @@ ColumnLayout {
         const minutes = Math.max(0, Math.floor((nowEpoch - epoch) / 60));
         if (minutes < 1) return qsTr("now");
         if (minutes < 60) return qsTr("%1m ago").arg(minutes);
-        return qsTr("%1h ago").arg(Math.floor(minutes / 60));
+        if (minutes < 2880) return qsTr("%1h ago").arg(Math.floor(minutes / 60));
+        return qsTr("%1d ago").arg(Math.floor(minutes / 1440));
     }
 
     spacing: Tokens.spacing.extraSmall
@@ -98,15 +109,13 @@ ColumnLayout {
 
         // One quiet status on the header, not a tooltip/paragraph per pool.
         StyledText {
-            visible: root.agent?.id === "codex" || !root.available || (root.agent?.stale ?? false)
+            // Only says something when the numbers below are not live.
+            visible: !root.available || (root.agent?.stale ?? false)
             text: {
                 if (!root.available)
                     return root.agent?.detail === "Usage rate-limited"
                         ? qsTr("Rate limited") : qsTr("No data");
-                if (root.agent?.id === "codex")
-                    return (root.agent?.source ?? qsTr("Local")) + " · " +
-                        root.observationAge(root.agent?.observedAt ?? 0);
-                return qsTr("Cached");
+                return root.observationAge(root.agent?.observedAt ?? 0);
             }
             font: Tokens.font.body.small
             color: Colours.palette.m3onSurfaceVariant
@@ -117,19 +126,24 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: !root.isAntigravity && root.available
         spacing: Tokens.spacing.small
+        opacity: (root.agent?.stale ?? false) ? 0.75 : 1
 
         AgentGauge {
             Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            labelWidth: root.shortLabelWidth
             label: root.agent?.fiveHourResets > root.nowEpoch
-                   ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5H")
+                   ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5h")
             value: root.fiveHour
             accent: root.accent
         }
 
         AgentGauge {
             Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            labelWidth: root.weekLabelWidth
             label: root.agent?.weeklyResets > root.nowEpoch
-                   ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("WEEK")
+                   ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("7d")
             value: root.weekly
             accent: root.accent
         }
@@ -149,34 +163,23 @@ ColumnLayout {
                 spacing: Tokens.spacing.small
                 opacity: modelData.stale ? 0.75 : 1
 
-                StyledText {
-                    Layout.minimumWidth: poolNameMetrics.width
-                    Layout.preferredWidth: poolNameMetrics.width
-                    Layout.maximumWidth: poolNameMetrics.width
-                    text: modelData.id === "gemini" ? qsTr("Google") : qsTr("Claude/GPT")
-                    font: Tokens.font.body.small
-                    color: Colours.palette.m3onSurfaceVariant
-                    elide: Text.ElideRight
-                }
-
-                TextMetrics {
-                    id: poolNameMetrics
-                    font: Tokens.font.body.small
-                    text: "Claude/GPT"
-                }
-
                 AgentGauge {
                     Layout.fillWidth: true
+                    Layout.preferredWidth: 1
                     compact: true
-                    label: qsTr("5h")
+                    labelWidth: root.shortLabelWidth
+                    label: modelData.id === "gemini" ? qsTr("Google") : qsTr("Claude/GPT")
                     value: modelData.fiveHour ?? -1
                     accent: root.accent
                 }
 
                 AgentGauge {
                     Layout.fillWidth: true
+                    Layout.preferredWidth: 1
                     compact: true
-                    label: qsTr("7d")
+                    labelWidth: root.weekLabelWidth
+                    label: (modelData.weeklyResets ?? 0) > root.nowEpoch
+                           ? root.weeklyResetText(modelData.weeklyResets) : qsTr("7d")
                     value: modelData.weekly ?? -1
                     accent: root.accent
                 }

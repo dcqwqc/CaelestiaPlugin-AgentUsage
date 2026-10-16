@@ -10,10 +10,12 @@ class CompactLayoutTests(unittest.TestCase):
         row = (ROOT / "components/AgentRow.qml").read_text()
         self.assertIn('model: root.agent?.pools ?? []', row)
         self.assertIn('compact: true', row)
-        self.assertIn('label: qsTr("5h")', row)
-        self.assertIn('label: qsTr("7d")', row)
-        self.assertIn('text: modelData.id === "gemini" ? qsTr("Google") : qsTr("Claude/GPT")', row)
+        self.assertIn('label: modelData.id === "gemini" ? qsTr("Google") : qsTr("Claude/GPT")', row)
         self.assertNotIn('Cached ·', row)
+        # Every gauge uses the shared column widths so bars align across agents.
+        self.assertEqual(row.count("labelWidth: root.shortLabelWidth"), 2)
+        self.assertEqual(row.count("labelWidth: root.weekLabelWidth"), 2)
+        self.assertNotIn('agent?.source', row)
 
     def test_no_redundant_card_heading(self):
         card = (ROOT / "cards/AgentUsageCard.qml").read_text()

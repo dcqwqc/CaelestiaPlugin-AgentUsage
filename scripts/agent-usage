@@ -369,7 +369,8 @@ def claude(timeout):
 # --------------------------------------------------------------------------
 
 CODEX_REMOTE_HOST = ""
-CODEX_MAX_AGE = 10800  # Cached readings are labeled with age; hide after 3h.
+# Last-known readings are always shown (dimmed and labeled with their age);
+# a reading is never hidden just because it is old.
 CODEX_READER = os.path.join(os.path.dirname(globals().get("__file__", "")), "codex_rate_limits.py")
 
 
@@ -416,8 +417,8 @@ def codex(timeout):
     reading, source = max(snapshots, key=lambda item: item[0]["observedAt"])
     seen = int(reading["observedAt"])
     now = time.time()
-    if seen > now + 120 or now - seen > CODEX_MAX_AGE:
-        return unavailable("codex", name, "Last reading too old")
+    if seen > now + 120:
+        return unavailable("codex", name, "Reading from the future")
 
     windows = [reading.get(k) for k in ("primary", "secondary")
                if isinstance(reading.get(k), dict)]
@@ -426,27 +427,27 @@ def codex(timeout):
     short_pct, short_reset, short_expired = _codex_window(short, now)
     long_pct, long_reset, long_expired = _codex_window(long, now)
 
-    if short_pct < 0 and long_pct < 0:
-        return unavailable("codex", name, "Quota snapshot expired")
-
     return {
         "id": "codex", "name": name, "available": True,
         "fiveHour": short_pct, "weekly": long_pct,
         "fiveHourResets": short_reset, "weeklyResets": long_reset,
         "detail": None, "source": source,
-        "stale": short_expired or long_expired or (now - seen > 120),
+        "stale": short_expired or long_expired or (now - seen > CODEX_FRESH),
         "observedAt": seen,
     }
 
 
+CODEX_FRESH = 900
+
+
 def _codex_window(window, now=None):
-    """Unknown after reset: an expired observation is NOT 0% used."""
+    """A window whose reset has passed has refilled since the reading."""
     if not window:
         return -1, 0, False
     now = time.time() if now is None else now
     reset = int(window.get("resets_at") or 0)
     if reset and reset <= now:
-        return -1, 0, True
+        return 0.0, 0, True
     used = window.get("used_percent")
     if not isinstance(used, (float, int)) or not 0 <= used <= 100:
         return -1, 0, False
@@ -592,17 +593,13 @@ def _known_reading(agent_id, fallback, stored):
         return fallback
     recovered = dict(previous)
     if agent_id == "codex":
-        seen = int(recovered.get("observedAt") or 0)
         now = time.time()
-        if not seen or now - seen > CODEX_MAX_AGE:
-            return fallback
         for key, reset_key in (("fiveHour", "fiveHourResets"),
                                ("weekly", "weeklyResets")):
             if recovered.get(reset_key, 0) and recovered[reset_key] <= now:
-                recovered[key] = -1
+                # The window reset after this reading, so it is full again.
+                recovered[key] = 0.0
                 recovered[reset_key] = 0
-        if recovered.get("fiveHour", -1) < 0 and recovered.get("weekly", -1) < 0:
-            return fallback
     recovered["stale"] = True
     recovered["detail"] = fallback.get("detail") or "Usage refresh unavailable"
     recovered["observedAt"] = int(previous.get("observedAt", 0))
@@ -625,6 +622,11 @@ def collect(timeout):
 
         if not item.get("available"):
             item = _known_reading(item["id"], item, stored)
+        elif (item["id"] == "codex"
+              and int((stored.get("codex") or {}).get("observedAt") or 0)
+              > int(item.get("observedAt") or 0)):
+            # An unreachable host must not let an older local session win.
+            item = _known_reading("codex", item, stored)
 
         if item.get("available"):
             # An agent can contain mixed live/cached windows. Preserve the

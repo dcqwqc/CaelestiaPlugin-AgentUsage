@@ -13,6 +13,9 @@ RowLayout {
     required property real value
     required property color accent
     property bool compact: false
+    // Every gauge in a column shares one label width so bars line up across
+    // all agents; the row decides it, not the current label text.
+    property real labelWidth: labelMetrics.width
 
     readonly property bool known: value >= 0
     readonly property real remaining: known ? Math.max(0, 1 - value) : -1
@@ -23,16 +26,17 @@ RowLayout {
     readonly property bool critical: known && remaining <= 0.1
     readonly property color emphasis: Colours.palette.m3inverseSurface
 
-    spacing: root.compact ? Tokens.spacing.extraSmall : Tokens.spacing.small
+    spacing: Tokens.spacing.small
 
     StyledText {
         // Countdown strings change every minute (for example 4h 11m -> 4h 10m).
         // Reserve one fixed text cell so proportional glyph widths never move
         // the progress bar, its sibling gauge, or the parent card.
-        Layout.minimumWidth: labelMetrics.width
-        Layout.preferredWidth: labelMetrics.width
-        Layout.maximumWidth: labelMetrics.width
+        Layout.minimumWidth: root.labelWidth
+        Layout.preferredWidth: root.labelWidth
+        Layout.maximumWidth: root.labelWidth
         horizontalAlignment: Text.AlignLeft
+        elide: Text.ElideRight
 
         text: root.label
         font: Tokens.font.body.small
@@ -43,9 +47,7 @@ RowLayout {
         id: labelMetrics
 
         font: Tokens.font.body.small
-        // Compact Antigravity labels are fixed 5h/7d; the other rows
-        // retain a wider cell for their live reset countdown.
-        text: root.compact ? "5h" : "88h 88m"
+        text: "88h 88m"
     }
 
     StyledProgressBar {
