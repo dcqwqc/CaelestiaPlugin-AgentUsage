@@ -45,7 +45,7 @@ StyledRect {
     // the dashboard's total width by a pixel or two and visibly nudge the whole
     // panel. Keep the card geometry invariant while live values update.
     implicitWidth: 320
-    implicitHeight: layout.implicitHeight + Tokens.padding.medium * 2
+    implicitHeight: layout.implicitHeight + Tokens.padding.large * 2
 
     Binding {
         target: Agents.AgentUsage
@@ -65,44 +65,25 @@ StyledRect {
         id: layout
 
         anchors.fill: parent
-        anchors.leftMargin: Tokens.padding.large
-        anchors.rightMargin: Tokens.padding.large
-        anchors.topMargin: Tokens.padding.medium
-        anchors.bottomMargin: Tokens.padding.medium
+        anchors.margins: Tokens.padding.large
 
-        spacing: Tokens.spacing.small
+        spacing: Tokens.spacing.large
 
+        // Same header as the Memory and Network cards beside it.
         RowLayout {
-            id: headerRow
-
             Layout.fillWidth: true
-            Layout.leftMargin: -Tokens.padding.extraSmall
             spacing: Tokens.spacing.small
 
-            AgentMark {
-                Layout.alignment: Qt.AlignVCenter
-                Layout.leftMargin: Tokens.padding.extraSmall
-
-                // Sized off the title beside it, so it tracks the theme's font
-                // scale the way the other cards' icons do
-                implicitHeight: Math.round(title.implicitHeight * 1.02)
-                implicitWidth: implicitHeight
-                colour: root.accent
+            MaterialIcon {
+                text: "smart_toy"
+                fill: 1
+                color: root.accent
+                fontStyle: Tokens.font.icon.builders.medium.weight(Font.DemiBold).build()
             }
 
             StyledText {
-                id: title
-
                 text: qsTr("Agents")
                 font: Tokens.font.title.medium
-            }
-
-            Item { Layout.fillWidth: true }
-
-            StyledText {
-                text: qsTr("Remaining")
-                font: Tokens.font.body.small
-                color: Colours.palette.m3onSurfaceVariant
             }
         }
 
@@ -115,7 +96,7 @@ StyledRect {
             id: agentsColumn
 
             Layout.fillWidth: true
-            spacing: Tokens.spacing.small
+            spacing: Tokens.spacing.medium
             visible: root.shown.length > 0
 
             Repeater {

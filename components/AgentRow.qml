@@ -6,8 +6,9 @@ import qs.components
 import qs.services
 import dcqwqc.agentusage.components
 
-// Compact header + quota lines. Antigravity keeps its two independent pools.
-ColumnLayout {
+// One agent: its mark on the left, its quota lines beside it. No name -- the
+// mark says which agent it is. Antigravity keeps its two independent pools.
+RowLayout {
     id: root
 
     required property var agent
@@ -47,16 +48,7 @@ ColumnLayout {
         return qsTr("%1d").arg(Math.max(0, Math.ceil((reset - nowEpoch) / 86400)));
     }
 
-    function observationAge(epoch: real): string {
-        if (!epoch) return qsTr("unknown age");
-        const minutes = Math.max(0, Math.floor((nowEpoch - epoch) / 60));
-        if (minutes < 1) return qsTr("now");
-        if (minutes < 60) return qsTr("%1m ago").arg(minutes);
-        if (minutes < 2880) return qsTr("%1h ago").arg(Math.floor(minutes / 60));
-        return qsTr("%1d ago").arg(Math.floor(minutes / 1440));
-    }
-
-    spacing: Tokens.spacing.extraSmall
+    spacing: Tokens.spacing.medium
 
     Timer {
         interval: 60000
@@ -66,101 +58,84 @@ ColumnLayout {
         onTriggered: root.nowEpoch = Math.floor(Date.now() / 1000)
     }
 
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Tokens.spacing.small
+    MaterialShape {
+        Layout.alignment: Qt.AlignVCenter
+        implicitSize: logo.implicitHeight + Tokens.padding.small
+        color: root.available ? Colours.palette.m3secondaryContainer
+                              : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
+        opacity: (root.available || root.configured) ? 1 : 0.7
 
-        MaterialShape {
-            Layout.alignment: Qt.AlignVCenter
-            implicitSize: logo.implicitHeight + Tokens.padding.small
-            color: root.available ? Colours.palette.m3secondaryContainer
-                                  : Colours.layer(Colours.palette.m3surfaceContainerHighest, 2)
-            opacity: (root.available || root.configured) ? 1 : 0.7
-
-            shape: {
-                if (root.peak >= 0.8)
-                    return MaterialShape.SoftBurst;
-                if (root.peak >= 0.4)
-                    return MaterialShape.Sunny;
-                return MaterialShape.Cookie4Sided;
-            }
-
-            Behavior on color {
-                CAnim {}
-            }
-
-            AgentLogo {
-                id: logo
-                anchors.centerIn: parent
-                agent: root.agent?.id ?? ""
-                colour: root.colour
-            }
+        shape: {
+            if (root.peak >= 0.8)
+                return MaterialShape.SoftBurst;
+            if (root.peak >= 0.4)
+                return MaterialShape.Sunny;
+            return MaterialShape.Cookie4Sided;
         }
 
-        StyledText {
-            text: root.agent?.name ?? ""
-            font: Tokens.font.title.small
-            color: root.colour
+        Behavior on color {
+            CAnim {}
         }
 
-        Item {
-            Layout.fillWidth: true
-        }
-
-        // One quiet status on the header, not a tooltip/paragraph per pool.
-        StyledText {
-            // Only says something when the numbers below are not live.
-            visible: !root.available || (root.agent?.stale ?? false)
-            text: {
-                if (!root.available)
-                    return root.agent?.detail === "Usage rate-limited"
-                        ? qsTr("Rate limited") : qsTr("No data");
-                return root.observationAge(root.agent?.observedAt ?? 0);
-            }
-            font: Tokens.font.body.small
-            color: Colours.palette.m3onSurfaceVariant
-        }
-    }
-
-    RowLayout {
-        Layout.fillWidth: true
-        visible: !root.isAntigravity && root.available
-        spacing: Tokens.spacing.small
-        opacity: (root.agent?.stale ?? false) ? 0.75 : 1
-
-        AgentGauge {
-            Layout.fillWidth: true
-            Layout.preferredWidth: 1
-            labelWidth: root.shortLabelWidth
-            label: root.agent?.fiveHourResets > root.nowEpoch
-                   ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5h")
-            value: root.fiveHour
-            accent: root.accent
-        }
-
-        AgentGauge {
-            Layout.fillWidth: true
-            Layout.preferredWidth: 1
-            labelWidth: root.weekLabelWidth
-            label: root.agent?.weeklyResets > root.nowEpoch
-                   ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("7d")
-            value: root.weekly
-            accent: root.accent
+        AgentLogo {
+            id: logo
+            anchors.centerIn: parent
+            agent: root.agent?.id ?? ""
+            colour: root.colour
         }
     }
 
     ColumnLayout {
         Layout.fillWidth: true
-        visible: root.isAntigravity
+        Layout.alignment: Qt.AlignVCenter
         spacing: Tokens.spacing.extraSmall
+        // A last-known reading stays on screen, just quieter than a live one.
+        opacity: (root.agent?.stale ?? false) ? 0.6 : 1
+
+        Behavior on opacity {
+            Anim {}
+        }
+
+        StyledText {
+            visible: !root.available
+            text: root.agent?.detail === "Usage rate-limited" ? qsTr("Rate limited") : qsTr("No data")
+            font: Tokens.font.body.small
+            color: Colours.palette.m3outline
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: !root.isAntigravity && root.available
+            spacing: Tokens.spacing.medium
+
+            AgentGauge {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                labelWidth: root.shortLabelWidth
+                label: root.agent?.fiveHourResets > root.nowEpoch
+                       ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5h")
+                value: root.fiveHour
+                accent: root.accent
+            }
+
+            AgentGauge {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                labelWidth: root.weekLabelWidth
+                label: root.agent?.weeklyResets > root.nowEpoch
+                       ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("7d")
+                value: root.weekly
+                accent: root.accent
+            }
+        }
 
         Repeater {
-            model: root.agent?.pools ?? []
+            model: root.isAntigravity && root.available ? (root.agent?.pools ?? []) : []
 
             RowLayout {
                 required property var modelData
                 Layout.fillWidth: true
-                spacing: Tokens.spacing.small
+                spacing: Tokens.spacing.medium
                 opacity: modelData.stale ? 0.75 : 1
 
                 AgentGauge {
@@ -168,7 +143,7 @@ ColumnLayout {
                     Layout.preferredWidth: 1
                     compact: true
                     labelWidth: root.shortLabelWidth
-                    label: modelData.id === "gemini" ? qsTr("Google") : qsTr("Claude/GPT")
+                    label: modelData.id === "gemini" ? qsTr("Gemini") : qsTr("Claude/GPT")
                     value: modelData.fiveHour ?? -1
                     accent: root.accent
                 }

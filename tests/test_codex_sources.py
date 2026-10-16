@@ -111,7 +111,7 @@ class CodexSourcesTests(unittest.TestCase):
         card = (ROOT / "cards/AgentUsageCard.qml").read_text()
         self.assertIn("1 - value", gauge)
         self.assertIn("root.remaining * 100", gauge)
-        self.assertIn('qsTr("Remaining")', card)
+        self.assertNotIn('qsTr("Remaining")', card)
 
 
 class CodexReaderTests(unittest.TestCase):
