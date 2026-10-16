@@ -4,6 +4,7 @@ import Caelestia.Config
 import qs.components
 import qs.components.controls
 import qs.services
+import dcqwqc.agentusage.components
 
 // One rolling window of one agent: its name, how full it is, and the bar.
 RowLayout {
@@ -16,6 +17,8 @@ RowLayout {
     // Every gauge in a column shares one label width so bars line up across
     // all agents; the row decides it, not the current label text.
     property real labelWidth: labelMetrics.width
+    // Optional small brand mark in front of the label (Antigravity's pools)
+    property string mark: ""
 
     readonly property bool known: value >= 0
     readonly property real remaining: known ? Math.max(0, 1 - value) : -1
@@ -28,19 +31,32 @@ RowLayout {
 
     spacing: Tokens.spacing.small
 
-    StyledText {
-        // Countdown strings change every minute (for example 4h 11m -> 4h 10m).
-        // Reserve one fixed text cell so proportional glyph widths never move
-        // the progress bar, its sibling gauge, or the parent card.
+    // Countdown strings change every minute (for example 4h 11m -> 4h 10m).
+    // Reserve one fixed cell so proportional glyph widths never move the
+    // progress bar, its sibling gauge, or the parent card.
+    RowLayout {
         Layout.minimumWidth: root.labelWidth
         Layout.preferredWidth: root.labelWidth
         Layout.maximumWidth: root.labelWidth
-        horizontalAlignment: Text.AlignLeft
-        elide: Text.ElideRight
+        spacing: Tokens.spacing.extraSmall
 
-        text: root.label
-        font: Tokens.font.body.small
-        color: Colours.palette.m3onSurfaceVariant
+        AgentLogo {
+            visible: root.mark !== ""
+            agent: root.mark
+            colour: root.accent
+            implicitWidth: Math.round(labelMetrics.height * 0.8)
+            implicitHeight: implicitWidth
+        }
+
+        StyledText {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignLeft
+            elide: Text.ElideRight
+
+            text: root.label
+            font: Tokens.font.body.small
+            color: Colours.palette.m3onSurfaceVariant
+        }
     }
 
     TextMetrics {

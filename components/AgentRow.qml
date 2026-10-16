@@ -25,13 +25,14 @@ RowLayout {
     property int nowEpoch: Math.floor(Date.now() / 1000)
 
     // Shared column grid for every agent: [short label | bar | %] [week label | bar | %].
-    // The short label cell fits both a countdown and an Antigravity pool name,
-    // so Claude, Codex and both Antigravity pools start their bars at the same x.
-    readonly property real shortLabelWidth: Math.ceil(Math.max(countdownMetrics.width, poolMetrics.width))
+    // The short label cell fits a countdown plus Antigravity's small pool
+    // mark, so Claude, Codex and both pools start their bars at the same x.
+    readonly property real shortLabelWidth: Math.ceil(countdownMetrics.width + countdownMetrics.height * 0.8 + Tokens.spacing.extraSmall)
     readonly property real weekLabelWidth: Math.ceil(weekMetrics.width)
 
+    // Both gauges start from their natural width and share the spare room
+    // equally (stretch 1 each), so both bars in a row are the same length.
     TextMetrics { id: countdownMetrics; font: Tokens.font.body.small; text: "88h 88m" }
-    TextMetrics { id: poolMetrics; font: Tokens.font.body.small; text: "Claude/GPT" }
     TextMetrics { id: weekMetrics; font: Tokens.font.body.small; text: "88d" }
 
     function shortResetText(reset: real): string {
@@ -110,7 +111,7 @@ RowLayout {
 
             AgentGauge {
                 Layout.fillWidth: true
-                Layout.preferredWidth: 1
+                Layout.horizontalStretchFactor: 1
                 labelWidth: root.shortLabelWidth
                 label: root.agent?.fiveHourResets > root.nowEpoch
                        ? root.shortResetText(root.agent.fiveHourResets) : qsTr("5h")
@@ -120,8 +121,8 @@ RowLayout {
 
             AgentGauge {
                 Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                labelWidth: root.weekLabelWidth
+                Layout.horizontalStretchFactor: 1
+                                labelWidth: root.weekLabelWidth
                 label: root.agent?.weeklyResets > root.nowEpoch
                        ? root.weeklyResetText(root.agent.weeklyResets) : qsTr("7d")
                 value: root.weekly
@@ -140,18 +141,22 @@ RowLayout {
 
                 AgentGauge {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
+                    Layout.horizontalStretchFactor: 1
                     compact: true
                     labelWidth: root.shortLabelWidth
-                    label: modelData.id === "gemini" ? qsTr("Gemini") : qsTr("Claude/GPT")
+                    // The pool is told apart by its mark; the text is the reset
+                    // countdown, as on every other row.
+                    mark: modelData.id === "gemini" ? "gemini" : "claude"
+                    label: (modelData.fiveHourResets ?? 0) > root.nowEpoch
+                           ? root.shortResetText(modelData.fiveHourResets) : qsTr("5h")
                     value: modelData.fiveHour ?? -1
                     accent: root.accent
                 }
 
                 AgentGauge {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    compact: true
+                    Layout.horizontalStretchFactor: 1
+                                        compact: true
                     labelWidth: root.weekLabelWidth
                     label: (modelData.weeklyResets ?? 0) > root.nowEpoch
                            ? root.weeklyResetText(modelData.weeklyResets) : qsTr("7d")

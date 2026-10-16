@@ -10,7 +10,8 @@ class CompactLayoutTests(unittest.TestCase):
         row = (ROOT / "components/AgentRow.qml").read_text()
         self.assertIn('model: root.isAntigravity && root.available ? (root.agent?.pools ?? []) : []', row)
         self.assertIn('compact: true', row)
-        self.assertIn('label: modelData.id === "gemini" ? qsTr("Gemini") : qsTr("Claude/GPT")', row)
+        self.assertIn('mark: modelData.id === "gemini" ? "gemini" : "claude"', row)
+        self.assertIn('root.shortResetText(modelData.fiveHourResets)', row)
         self.assertNotIn('Cached ·', row)
         # Every gauge uses the shared column widths so bars align across agents.
         self.assertEqual(row.count("labelWidth: root.shortLabelWidth"), 2)
