@@ -15,11 +15,12 @@ RowLayout {
     property bool compact: false
 
     readonly property bool known: value >= 0
+    readonly property real remaining: known ? Math.max(0, 1 - value) : -1
     // A window this close to its limit is worth reading as a warning. Not the
     // error red -- nothing is broken, it is just nearly spent -- but the
     // palette's maximum contrast against the card, which is near-black on a
     // light theme and stays as emphatic on a dark one.
-    readonly property bool critical: known && value >= 0.9
+    readonly property bool critical: known && remaining <= 0.1
     readonly property color emphasis: Colours.palette.m3inverseSurface
 
     spacing: root.compact ? Tokens.spacing.extraSmall : Tokens.spacing.small
@@ -52,7 +53,7 @@ RowLayout {
         Layout.alignment: Qt.AlignVCenter
 
         implicitHeight: Tokens.padding.small
-        value: root.known ? Math.min(1, root.value) : 0
+        value: root.known ? root.remaining : 0
         indeterminate: !root.known
         fgColour: root.critical ? root.emphasis : root.accent
 
@@ -69,7 +70,7 @@ RowLayout {
         Layout.maximumWidth: metrics.width
         horizontalAlignment: Text.AlignRight
 
-        text: root.known ? `${Math.round(root.value * 100)}%` : "–"
+        text: root.known ? `${Math.round(root.remaining * 100)}%` : "–"
         font: Tokens.font.body.builders.small.build()
         color: root.critical ? root.emphasis : Colours.palette.m3onSurface
     }

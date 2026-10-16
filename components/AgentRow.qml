@@ -37,6 +37,14 @@ ColumnLayout {
         return qsTr("%1d").arg(Math.max(0, Math.ceil((reset - nowEpoch) / 86400)));
     }
 
+    function observationAge(epoch: real): string {
+        if (!epoch) return qsTr("unknown age");
+        const minutes = Math.max(0, Math.floor((nowEpoch - epoch) / 60));
+        if (minutes < 1) return qsTr("now");
+        if (minutes < 60) return qsTr("%1m ago").arg(minutes);
+        return qsTr("%1h ago").arg(Math.floor(minutes / 60));
+    }
+
     spacing: Tokens.spacing.extraSmall
 
     Timer {
@@ -90,10 +98,16 @@ ColumnLayout {
 
         // One quiet status on the header, not a tooltip/paragraph per pool.
         StyledText {
-            visible: !root.available || (root.agent?.stale ?? false)
-            text: root.available ? qsTr("Cached")
-                : root.agent?.detail === "Usage rate-limited"
-                  ? qsTr("Rate limited") : qsTr("No data")
+            visible: root.agent?.id === "codex" || !root.available || (root.agent?.stale ?? false)
+            text: {
+                if (!root.available)
+                    return root.agent?.detail === "Usage rate-limited"
+                        ? qsTr("Rate limited") : qsTr("No data");
+                if (root.agent?.id === "codex")
+                    return (root.agent?.source ?? qsTr("Local")) + " · " +
+                        root.observationAge(root.agent?.observedAt ?? 0);
+                return qsTr("Cached");
+            }
             font: Tokens.font.body.small
             color: Colours.palette.m3onSurfaceVariant
         }

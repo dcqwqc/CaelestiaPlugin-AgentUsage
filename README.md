@@ -1,11 +1,12 @@
 # AgentUsage
 
-Five-hour and weekly usage limits for the coding agents on this machine, as a
-card in the Caelestia dashboard's Performance tab.
+Five-hour and weekly **remaining** usage for the coding agents, as a card
+in the Caelestia dashboard's Performance tab. 100% means fully available;
+0% means the window has been exhausted.
 
 ![the card beside the CPU hero card](docs/performance-tab.png)
 
-A window past 90% goes to the palette's maximum contrast against the card
+A window below 10% remaining goes to the palette's maximum contrast against the card
 rather than the error red — nothing is broken when an agent is nearly spent,
 it just wants looking at.
 
@@ -16,6 +17,8 @@ swells as the agent gets used up, the way the CPU card's usage blob does.
 | Agent | Where the reading comes from |
 |---|---|
 | Claude Code | Primarily native statusLine rate-limit data (no network calls); the usage endpoint is a fallback. |
+| Codex | Recent observed rate limits in local Codex session logs and, optionally, a trusted SSH host's session logs. |
+| Antigravity | `agy -p /usage`, which reads the CLI's quota display without spending a turn. |
 
 Claude Code's native statusLine data is now the preferred source. Install
 scripts/claude-statusline-capture as the command in Claude Code's settings.
@@ -29,16 +32,17 @@ Cached for older readings. If Claude has not yet emitted native quota data,
 the legacy usage endpoint may still fail with HTTP 429; its retries are
 backed off. Being signed in does not guarantee the usage endpoint works.
 
-| Codex | The `rate_limits` record the server returns with every response, as written into the newest session log under `~/.codex/sessions`. |
-| Antigravity | `agy -p /usage`, which answers the CLI's read-only slash commands in print mode without spending a turn. |
-
 An agent that is not installed, not signed in, or has never been run says so
 instead of drawing an empty gauge — nothing here reports 0% for "no idea".
 
-Codex only learns its limits while it is running, so its reading is as old as
-its last session. Where a window's own reset time has passed since then, the
-window is reported as empty rather than as whatever it was when Codex last
-looked.
+Codex only learns its limits when a session receives a quota snapshot. The
+collector compares the newest usable local and SSH-host observations and shows
+the host and age beside Codex. It never requests a Codex completion, accesses
+credentials, or invents a fresh reading. A window whose recorded reset has
+passed is **unknown** (dash), not falsely 100% remaining; snapshots older than
+three hours are unavailable. Recent null/null quota events are ignored, and
+near-simultaneous sessions use the conservative reading for the same reset
+window. SSH is read-only, noninteractive and limited to known hosts.
 
 ## Requires
 
@@ -65,8 +69,10 @@ The hero cards there give up their stretch while a plugin holds that slot, so
 the CPU card's usage blob stays beside the CPU readout instead of being pushed
 to the far right of the row.
 
-`python3` for the collector, and `agy` on PATH for the Antigravity row. No
-other dependencies.
+`python3` for the collector, and `agy` on PATH for the Antigravity row.
+Optional remote Codex usage needs key-based `ssh` access to the configured
+trusted host. The helper Python source is streamed over SSH; nothing is
+installed or modified on the remote machine.
 
 ## Install
 
@@ -81,7 +87,8 @@ Then enable `dcqwqc/agentusage` on the Plugins page.
 
 | Setting | Default | |
 |---|---|---|
-| Refresh interval | 120s | Claude Code and Antigravity are queried; Codex session logs are read locally. |
+| Refresh interval | 120s | Claude Code and Antigravity are queried; Codex session logs are read locally and optionally over SSH. |
+| Codex usage host | philipedia | SSH host to read Codex logs from; leave blank for local only. |
 | Show Claude Code / Codex / Antigravity | on | Hides a row entirely. |
 
 The collector caches to `$XDG_RUNTIME_DIR/caelestia-agent-usage.json` for half
@@ -101,7 +108,7 @@ Claude and GPT models    Five Hour Limit Remaining 100%    2026-09-21T22:37:26Z
 ```
 
 Antigravity displays **two compact lines** below its title: Google and
-Claude/GPT. Each line shows the **5h** and **7d** usage bars side by side.
+Claude/GPT. Each line shows the **5h** and **7d** remaining-allowance bars side by side.
 The two pools are never combined into an artificial overall percentage.
 Successful readings persist in `~/.cache/caelestia-agent-usage-last-good.json`,
 including across restarts. When refreshing fails, the last known value remains

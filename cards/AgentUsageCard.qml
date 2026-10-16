@@ -54,6 +54,13 @@ StyledRect {
         when: !!root.settings
     }
 
+    Binding {
+        target: Agents.AgentUsage
+        property: "codexHost"
+        value: root.settings?.codexHost ?? ""
+        when: !!root.settings
+    }
+
     ColumnLayout {
         id: layout
 
@@ -88,6 +95,14 @@ StyledRect {
 
                 text: qsTr("Agents")
                 font: Tokens.font.title.medium
+            }
+
+            Item { Layout.fillWidth: true }
+
+            StyledText {
+                text: qsTr("Remaining")
+                font: Tokens.font.body.small
+                color: Colours.palette.m3onSurfaceVariant
             }
         }
 

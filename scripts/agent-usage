@@ -40,6 +40,7 @@ import urllib.error
 import fcntl
 import tempfile
 import email.utils
+import socket
 
 HOME = os.path.expanduser("~")
 CACHE = os.path.join(
@@ -362,119 +363,94 @@ def claude(timeout):
 
 
 # --------------------------------------------------------------------------
-# Codex -- every rollout file carries the rate limits the server returned with
-# the last response of that session, so the newest session that has any is the
-# most recent reading there is.
+# Codex -- read local and optional SSH-host session snapshots without
+# triggering any Codex request or reading authentication credentials.
+# Only recent, actually observed quota values may be displayed.
 # --------------------------------------------------------------------------
 
-CODEX_SESSIONS = os.path.join(HOME, ".codex", "sessions")
-CODEX_SCAN = 12  # newest rollout files to look through
+CODEX_REMOTE_HOST = ""
+CODEX_MAX_AGE = 10800  # Cached readings are labeled with age; hide after 3h.
+CODEX_READER = os.path.join(os.path.dirname(globals().get("__file__", "")), "codex_rate_limits.py")
 
 
-def codex(_timeout):
+def _codex_snapshot(host, timeout):
+    try:
+        if host:
+            # A host name is configuration, never a shell command.
+            import re
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,62}", host):
+                return None
+            with open(CODEX_READER) as source:
+                script = source.read()
+            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                   "-o", "StrictHostKeyChecking=yes", host, "python3 -"]
+        else:
+            script = None
+            cmd = [sys.executable, CODEX_READER]
+        result = subprocess.run(cmd, input=script, capture_output=True,
+                                text=True, timeout=max(2, min(timeout, 7)))
+        if result.returncode:
+            return None
+        reading = json.loads(result.stdout)
+        if not isinstance(reading, dict) or not reading.get("observedAt"):
+            return None
+        return reading
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def codex(timeout):
     name = "Codex"
+    snapshots = []
+    local = _codex_snapshot("", timeout)
+    if local:
+        snapshots.append((local, socket.gethostname().capitalize()))
+    if CODEX_REMOTE_HOST:
+        remote = _codex_snapshot(CODEX_REMOTE_HOST, timeout)
+        if remote:
+            snapshots.append((remote, CODEX_REMOTE_HOST.capitalize()))
 
-    if not os.path.isdir(CODEX_SESSIONS):
-        return unavailable("codex", name, "not installed")
+    if not snapshots:
+        return unavailable("codex", name, "No recent session data")
 
-    files = glob.glob(os.path.join(CODEX_SESSIONS, "**", "rollout-*.jsonl"), recursive=True)
-    if not files:
-        return unavailable("codex", name, "never run")
+    reading, source = max(snapshots, key=lambda item: item[0]["observedAt"])
+    seen = int(reading["observedAt"])
+    now = time.time()
+    if seen > now + 120 or now - seen > CODEX_MAX_AGE:
+        return unavailable("codex", name, "Last reading too old")
 
-    files.sort(key=os.path.getmtime, reverse=True)
+    windows = [reading.get(k) for k in ("primary", "secondary")
+               if isinstance(reading.get(k), dict)]
+    short = next((w for w in windows if w.get("window_minutes", 0) <= 600), None)
+    long = next((w for w in windows if w.get("window_minutes", 0) > 600), None)
+    short_pct, short_reset, short_expired = _codex_window(short, now)
+    long_pct, long_reset, long_expired = _codex_window(long, now)
 
-    best = None
-    for path in files[:CODEX_SCAN]:
-        reading = _codex_limits(path)
-        if reading and (best is None or reading[2] > best[2]):
-            best = reading
-
-    if best is None:
-        return unavailable("codex", name, "no usage recorded")
-
-    primary, secondary, seen = best
-    short = primary if primary.get("window_minutes", 0) <= FIVE_HOUR * 2 else secondary
-    long = secondary or primary
-
-    short_pct, short_reset, short_stale = _codex_window(short)
-    long_pct, long_reset, long_stale = _codex_window(long)
+    if short_pct < 0 and long_pct < 0:
+        return unavailable("codex", name, "Quota snapshot expired")
 
     return {
-        "id": "codex",
-        "name": name,
-        "available": True,
-        "fiveHour": short_pct,
-        "weekly": long_pct,
-        "fiveHourResets": short_reset,
-        "weeklyResets": long_reset,
-        "detail": None,
-        "stale": short_stale or long_stale or (time.time() - seen > 120),
-        "observedAt": int(seen),
+        "id": "codex", "name": name, "available": True,
+        "fiveHour": short_pct, "weekly": long_pct,
+        "fiveHourResets": short_reset, "weeklyResets": long_reset,
+        "detail": None, "source": source,
+        "stale": short_expired or long_expired or (now - seen > 120),
+        "observedAt": seen,
     }
 
 
-def _codex_window(window):
-    """One window of a Codex reading, rolled forward if it has since reset."""
+def _codex_window(window, now=None):
+    """Unknown after reset: an expired observation is NOT 0% used."""
     if not window:
         return -1, 0, False
-
-    used = (window.get("used_percent") or 0) / 100.0
-    resets = int(window.get("resets_at") or 0)
-
-    # The reading is only ever as old as the last Codex run. Once its own reset
-    # time has passed the window has emptied, whatever the recorded figure said.
-    if resets and resets < time.time():
-        return 0.0, 0, True
-
-    return used, resets, False
-
-
-def _codex_limits(path):
-    """The last rate_limits record in one rollout file, with its own timestamp."""
-    try:
-        with open(path, errors="replace") as f:
-            lines = f.readlines()
-    except OSError:
-        return None
-
-    for line in reversed(lines):
-        if '"rate_limits"' not in line:
-            continue
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-
-        limits = _find_key(entry, "rate_limits")
-        if not limits:
-            continue
-
-        primary = limits.get("primary")
-        secondary = limits.get("secondary")
-        if not primary and not secondary:
-            continue
-
-        seen = iso_to_epoch(entry.get("timestamp")) or os.path.getmtime(path)
-        return primary or {}, secondary or {}, seen
-
-    return None
-
-
-def _find_key(obj, key):
-    """rate_limits sits at a different depth across Codex versions."""
-    if isinstance(obj, dict):
-        if isinstance(obj.get(key), dict):
-            return obj[key]
-        for value in obj.values():
-            found = _find_key(value, key)
-            if found:
-                return found
-    elif isinstance(obj, list):
-        for value in obj:
-            found = _find_key(value, key)
-            if found:
-                return found
-    return None
+    now = time.time() if now is None else now
+    reset = int(window.get("resets_at") or 0)
+    if reset and reset <= now:
+        return -1, 0, True
+    used = window.get("used_percent")
+    if not isinstance(used, (float, int)) or not 0 <= used <= 100:
+        return -1, 0, False
+    return used / 100.0, reset, False
 
 
 # --------------------------------------------------------------------------
@@ -615,6 +591,18 @@ def _known_reading(agent_id, fallback, stored):
     if not previous.get("available"):
         return fallback
     recovered = dict(previous)
+    if agent_id == "codex":
+        seen = int(recovered.get("observedAt") or 0)
+        now = time.time()
+        if not seen or now - seen > CODEX_MAX_AGE:
+            return fallback
+        for key, reset_key in (("fiveHour", "fiveHourResets"),
+                               ("weekly", "weeklyResets")):
+            if recovered.get(reset_key, 0) and recovered[reset_key] <= now:
+                recovered[key] = -1
+                recovered[reset_key] = 0
+        if recovered.get("fiveHour", -1) < 0 and recovered.get("weekly", -1) < 0:
+            return fallback
     recovered["stale"] = True
     recovered["detail"] = fallback.get("detail") or "Usage refresh unavailable"
     recovered["observedAt"] = int(previous.get("observedAt", 0))
@@ -654,7 +642,7 @@ def collect(timeout):
         agents.append(item)
 
     private_json(LAST_GOOD, {"agents": updated})
-    return {"generated": now, "agents": agents}
+    return {"generated": now, "codexHost": CODEX_REMOTE_HOST, "agents": agents}
 
 
 def cached(max_age):
@@ -665,7 +653,8 @@ def cached(max_age):
             body = json.load(f)
     except Exception:
         return None
-    if time.time() - body.get("generated", 0) > max_age:
+    if (time.time() - body.get("generated", 0) > max_age
+            or body.get("codexHost") != CODEX_REMOTE_HOST):
         return None
     return body
 
@@ -682,6 +671,7 @@ def store(body):
 
 def main():
     args = sys.argv[1:]
+    global CODEX_REMOTE_HOST
     max_age = 0
     timeout = 8
 
@@ -690,6 +680,8 @@ def main():
             max_age = float(args[i + 1])
         elif arg == "--timeout" and i + 1 < len(args):
             timeout = float(args[i + 1])
+        elif arg == "--codex-host" and i + 1 < len(args):
+            CODEX_REMOTE_HOST = args[i + 1].strip()
 
     body = cached(max_age)
     if body is None:

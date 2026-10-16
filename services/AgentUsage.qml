@@ -14,24 +14,32 @@ Singleton {
 
     // Seconds between polls. The card binds this from the plugin settings.
     property int interval: 120
+    property string codexHost: ""
+    property bool pendingRefresh: false
     property var agents: []
     property bool ready: false
     property bool failed: false
     readonly property bool busy: proc.running
 
     function refresh(): void {
-        if (!proc.running)
-            proc.running = true;
+        if (proc.running) {
+            root.pendingRefresh = true;
+            return;
+        }
+        root.pendingRefresh = false;
+        proc.running = true;
     }
 
     // A poll never costs more than the cache allows, so a refresh forced by a
     // card appearing cannot hammer the endpoints behind it.
     onIntervalChanged: timer.restart()
+    onCodexHostChanged: root.refresh()
 
     Process {
         id: proc
 
-        command: [root.script, "--max-age", Math.max(15, Math.round(root.interval / 2)).toString()]
+        command: [root.script, "--max-age", Math.max(15, Math.round(root.interval / 2)).toString(),
+                  "--codex-host", root.codexHost]
         running: false
 
         stdout: StdioCollector {
@@ -51,6 +59,8 @@ Singleton {
                 root.failed = true;
                 root.ready = true;
             }
+            if (root.pendingRefresh)
+                Qt.callLater(root.refresh);
         }
     }
 

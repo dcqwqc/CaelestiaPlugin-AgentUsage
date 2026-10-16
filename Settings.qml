@@ -28,6 +28,15 @@ SettingsObject {
         inputType: SettingMeta.Switch
     }
 
+    // Optional SSH host where Codex is actually running. Empty = local only.
+    property string codexHost: "philipedia"
+    SettingMeta on codexHost {
+        label: "Codex usage host"
+        description: "Read recent quota snapshots from this trusted SSH host as well as locally. Leave empty for local only."
+        icon: "computer"
+        inputType: SettingMeta.TextField
+    }
+
     property bool showCodex: true
     SettingMeta on showCodex {
         label: "Show Codex"
